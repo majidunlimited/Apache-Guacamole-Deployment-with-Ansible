@@ -9,22 +9,56 @@
   hosts: PamServers
   remote_user: root
 
-vars:
-  nexus_url: "YOUR NEXUS URL"
-  
+  vars:
+    nexus: "http://<NEXUS URL>/repository"
+    apt_proxy: "/apt-proxy/"
+    apt_hosted: "/apt-hosted/"
+    nexus_components: "main restricted universe multiverse"
+
   tasks:
-    - name: Set time and date for server
-      community.general.timezone:
-        name: XX/YY
+    - name: Configure DNS resolvers
+      ansible.builtin.copy:
+        dest: /etc/resolv.conf
+        mode: "0644"
+        content: |
+          nameserver <DNS SERVER1>
+          nameserver <DNS SERVER2>
+
+    - name: Download Nexus APT public key from Nexus RAW repo
+      ansible.builtin.get_url:
+        url: "{{ nexus }}/PATH/TO/public.gpg.key"
+        dest: "/PATH/TO/2/nexus-apt.asc"
+        mode: "0644"
+
+    - name: Dearmor Nexus APT key
+      ansible.builtin.command:
+        cmd: "gpg --dearmor -o /PATH/TO/2/nexus-apt.gpg /PATH/TO/2/nexus-apt.asc"
+      args:
+        creates: "/PATH/TO/2/nexus-apt.gpg"
 
     - name: Add Nexus Repo to source.list
       ansible.builtin.copy:
         dest: /etc/apt/sources.list
         mode: "0644"
         content: |
-          deb [trusted=yes] {{ nexus_url }}apt-proxy/ jammy main restricted universe multiverse
-          deb [trusted=yes] {{ nexus_url }}apt-proxy/ jammy-updates main restricted universe multiverse
-          deb [trusted=yes] {{ nexus_url }}apt-proxy/ jammy-security main restricted universe multiverse
+          deb [trusted=yes] {{ nexus }}{{ apt_proxy }} jammy {{ nexus_components }}
+          deb [trusted=yes] {{ nexus }}{{ apt_proxy }} jammy-updates {{ nexus_components }}
+          deb [trusted=yes] {{ nexus }}{{ apt_proxy }} jammy-security {{ nexus_components }}
+          deb [trusted=yes] {{ nexus }}{{ apt_proxy }} jammy-backports {{ nexus_components }}
+          deb [signed-by=/usr/share/keyrings/nexus-apt.gpg] {{ nexus }}{{ apt_hosted }} jammy main
+
+    - name: Apt update
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Apt upgrade tzdata package
+      ansible.builtin.apt:
+        name: tzdata
+        state: latest
+
+    - name: Set time and date
+      community.general.timezone:
+        name: Asia/Tehran
 
     - name:  Update apt repo and Install prerequisites
       ansible.builtin.apt:
@@ -54,8 +88,8 @@ vars:
         - libvorbis-dev
         - libwebp-dev
         - mysql-server
-        - freerdp2-dev                # This package must add from Remina repository.
-        - freerdp2-x11                # This package must add from Remina repository.
+        - freerdp2-dev
+        - freerdp2-x11
         - default-jdk
         - tomcat9
         - tomcat9-admin
@@ -64,16 +98,24 @@ vars:
         - python3-pip
         - libmysqlclient21
         - libzip-dev
+        - libtesseract4
+        - libopencv-videoio4.5d
+        - libopencv-video4.5d
+        - tesseract-ocr
+        - tesseract-ocr-eng
+        - tesseract-ocr-fas
+        - zip
+        - python3-lxml
         update_cache: yes
 
-    - name: Configure pip to use Nexus (system-wide)   #If you dont have PYPI nexus repo, you can comment these lines.
+    - name: Configure pip to use Nexus (system-wide)
       ansible.builtin.copy:
         dest: /etc/pip.conf
         mode: "0644"
         content: |
           [global]
-          index-url = {{ nexus_url }}pypi-proxy/simple
-          trusted-host = 192.168.100.194                #If your nexus dosent use https, or selfsigned ssl.
+          index-url = http://<NEXUS URL>/repository/pypi-proxy/simple
+          trusted-host = <NEXUS URL>
           timeout = 60
 
     - name: PIP3 install PyMySQL
@@ -81,6 +123,7 @@ vars:
         name: PyMySQL
         executable: pip3
       tags:
+        - prerequisites
 
     - name: Start service of Apache Tomcat 9
       ansible.builtin.service:
@@ -88,34 +131,58 @@ vars:
         enabled: yes
         state: started
 
-    - name: Open port 8080 for apache
+    - name: Open port 8080 for guacamole
       community.general.ufw:
         rule: allow
         port: 8080
         proto: tcp
 
-    - name: unarchive guacamole server
+    - name: Check if ErrorReportValve exists
+      community.general.xml:
+        path: /etc/tomcat9/server.xml
+        xpath: /Server/Service/Engine/Host/Valve[@className="org.apache.catalina.valves.ErrorReportValve"]
+        count: yes
+      register: valve_check
+
+    - name: Ensure ErrorReportValve exists
+      community.general.xml:
+        path: /etc/tomcat9/server.xml
+        xpath: /Server/Service/Engine/Host
+        add_children:
+          - Valve:
+              className: "org.apache.catalina.valves.ErrorReportValve"
+              showReport: "false"
+              showServerInfo: "false"
+      when: valve_check.count == 0
+
+    - name: Restart Tomcat9 service
+      ansible.builtin.service:
+        name: tomcat9
+        enabled: yes
+        state: restarted
+
+    - name: Download and unarchive guacamole server
       ansible.builtin.unarchive:
         src: ./guacamole-server-1.5.5.tar.gz
         dest: /root/
 
     - name: Configure command for Guacamole server
       ansible.builtin.shell:
-        chdir: /root/guacamole-server-1.5.5
+        chdir: ./guacamole-server-1.5.5
         cmd: ./configure --with-init-dir=/etc/init.d
 
     - name: Make command for Guacamole server
       community.general.make:
-        chdir: /root/guacamole-server-1.5.5
+        chdir: ./guacamole-server-1.5.5
 
     - name: Make Install command for Guacamole server
       community.general.make:
-        chdir: /root/guacamole-server-1.5.5
+        chdir: ./guacamole-server-1.5.5
         target: install
 
     - name: ldconfig command for Guacamole server
       ansible.builtin.shell:
-        chdir: /root/guacamole-server-1.5.5
+        chdir: ./guacamole-server-1.5.5
         cmd: ldconfig
 
     - name: Make directories (extensions,lib)
@@ -156,7 +223,6 @@ vars:
       loop:
         - echo "GUACAMOLE_HOME=/etc/guacamole" | sudo tee -a /etc/default/tomcat
         - echo "export GUACAMOLE_HOME=/etc/guacamole" | sudo tee -a /etc/profile
-      tags: guacd
 
     - name: Create file guacamole.properties
       ansible.builtin.copy:
@@ -188,43 +254,39 @@ vars:
 
     - name: Create Database
       mysql_db:
-        name: guacamole_db
+        name: dpam_db
         state: present
         login_unix_socket: /run/mysqld/mysqld.sock
 
     - name: Create Database user
       mysql_user:
-        name: guacamole_user
-        password: changeit
+        name: <MySQL_USER>
+        password: <MySQL_PASS>
         priv: '*.*:ALL'
         host: '%'
         state: present
         login_unix_socket: /run/mysqld/mysqld.sock
 
     - name: Copy the create tables query files
-      ansible.builtin.unarchive:
-        src: ./guacamole-auth-jdbc-1.5.3.tar.gz
-        dest: /tmp
+      ansible.builtin.copy:
+        src: ./guacamole-auth-jdbc-1.5.3/mysql/schema/001-create-schema.sql
+        dest: /etc/guacamole/extensions/
+
+    - name: Copy the create tables query files
+      ansible.builtin.copy:
+        src: ./guacamole-auth-jdbc-1.5.3/mysql/schema/002-create-admin-user.sql
+        dest: /etc/guacamole/extensions/
 
     - name: Create Guacamole tables
       mysql_db:
-        name: guacamole_db
-        target: /tmp/mysql/schema/001-create-schema.sql
+        name: dpam_db
+        target: /etc/guacamole/extensions/001-create-schema.sql
         state: import
         login_unix_socket: /run/mysqld/mysqld.sock
 
     - name: Create Guacamole tables 2
       mysql_db:
-        name: guacamole_db
-        target: /tmp/mysql/schema/002-create-admin-user.sql
+        name: dpam_db
+        target: /etc/guacamole/extensions/002-create-admin-user.sql
         state: import
         login_unix_socket: /run/mysqld/mysqld.sock
-
-    - name: Restart services
-      ansible.builtin.service:
-        name: "{{ item }}"
-        enabled: yes
-        state: started
-      loop:
-        - "guacd"
-        - "tomcat9"
