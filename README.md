@@ -14,3 +14,9 @@ If you wanna use your nexus beside your default ubuntu repos, change /etc/apt/so
  * Guacamole 1.5.5
  * Ansible 2.17.11
  * Python 3.10
+
+# Release 2.0.1 Published
+Solve two CVE:
+* CVE-2024-56337
+* CVE-2026-31431
+Go to releases.
