@@ -19,4 +19,5 @@ If you wanna use your nexus beside your default ubuntu repos, change /etc/apt/so
 Solve two CVE:
 * CVE-2024-56337
 * CVE-2026-31431
+
 Go to releases.
