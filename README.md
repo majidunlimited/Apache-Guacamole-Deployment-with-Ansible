@@ -1,26 +1,28 @@
-# Apache Guacamole Deployment with Ansible and Nexus OSS Repository
+# Apache Guacamole Deployment with Ansible
 Automated deployment of Apache Guacamole 1.5.5 using Ansible and Nexus OSS Repository.
 
-This project supports both online and offline installations by integrating with Sonatype Nexus Repository, making it suitable for enterprise environments with restricted Internet access. Make sure your Nexus server have access to Internet.
+This project supports both online and offline deployment using Sonatype Nexus Repository, making it suitable for enterprise environments with restricted Internet access. Make sure your Nexus server has access to Internet.
 
-## Why I build this project?
+## Why I built this project?
 Many enterprise environments don't have direct Internet access.
 
-Installing Apache Guacamole manually in these environments will have some issues.
+Installing Apache Guacamole manually in restricted environments is time-consuming, repetitive and error-prone.
 
-So this project automates the complete deployment process using Ansible while retrieving packages from an internal Nexus Repository.
+This project automates the complete deployment process using Ansible while retrieving packages from an internal Nexus Repository.
 
 ## Features
 
 - Automated Guacamole 1.5.5 installation.
 - Offline package installation using Nexus proxy or hosted repository
-- Apache Tomcat 9.0.118 deployment (Latest version for now)
+- Apache Tomcat deployment (currently 9.0.118)
 - Dependency installation
 - CVE fixes (Added for solving security issues)
 
 # Nexus on source list
+⚠️ Warning
+
 If you use this playbook, beaware that in target server, you will lost your source.list default repo of ubuntu. 
-If you wanna use your nexus beside your default ubuntu repos, change /etc/apt/source.list path to /etc/apt/source.list.d/nexus.list.
+If you wanna keep the default Ubuntu repositories, use: /etc/apt/sources.list.d/nexus.list
 
 # Technologies
  * Ubuntu 22.04 TLS (Jammy)
@@ -30,15 +32,17 @@ If you wanna use your nexus beside your default ubuntu repos, change /etc/apt/so
  * Python 3.10
 
 # Release 2.0.1 Published
-Solve two CVE:
+Security improvement:
+
+This release addresses the following vulnerabilities:
+
 * CVE-2024-56337
 * CVE-2026-31431
-
-Go to releases.
 
 ## Future Improvements
 - Will support Ubuntu 24.04
 - Add Molecule tests
+- GitHub Actions CI
 - Support Podman
 
 ## Lessons Learned
@@ -51,6 +55,6 @@ During this project I learned:
 - Building reusable Ansible roles
 
 ## Real-world Use Case
-This project was created for enterprise environments where Internet access is restricted.
+This project was created for enterprise environments where Internet access is restricted or completely unavailable.
 
 Instead of downloading packages directly from public repositories, all dependencies are retrieved from an internal Sonatype Nexus Repository.
