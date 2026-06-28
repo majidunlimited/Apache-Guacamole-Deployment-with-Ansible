@@ -1,8 +1,8 @@
-#########################################################
-#       Guacamole and pam installation playbook         #
-#       Maintainer: Majid Mortazavi                     #
-#       Douran Co. LTD                                  #
-#########################################################
+################################################################################
+#       Apache Guacamole Deployment with Ansible installation playbook         #
+#       Maintainer: Majid Mortazavi                                            #
+#       Douran Co. LTD                                                         #
+################################################################################
 
 ---
 - name: Install Guacamole and Pam
