@@ -1,4 +1,4 @@
-# guacamole-1.5.5 using ansible and Nexus repository
+# Apache Guacamole Deployment with Ansible and Nexus OSS Repository
 This playbook can use for install Apache guacamole 1.5.5 with Nexus repository.
 To download packages from Nexus repository, first you need to install Nexus. I use Sonatype Nexus Repository.
 Every repositories on nexus has a URL. I create apt-hosted, apt-proxy and pypi-proxy repository.
