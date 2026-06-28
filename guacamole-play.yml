@@ -123,7 +123,7 @@
         mode: "0644"
         content: |
           [global]
-          index-url = http://<NEXUS URL>/repository/pypi-proxy/simple
+          index-url = {{ nexus }}/repository/pypi-proxy/simple
           trusted-host = <NEXUS URL>
           timeout = 60
 
@@ -149,7 +149,7 @@
 
     - name: Download tomcat-9 tar.gz file
       ansible.builtin.unarchive:
-        src: http://<NEXUS URL>/repository/apache-tomcat-9.0.118.tar.gz
+        src: {{ nexus }}/repository/apache-tomcat-9.0.118.tar.gz
         dest: /opt/tomcat/
         remote_src: yes
 
