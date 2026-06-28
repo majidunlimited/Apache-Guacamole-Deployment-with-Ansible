@@ -2,11 +2,17 @@
 #       Apache Guacamole Deployment with Ansible installation playbook         #
 #       Maintainer: Majid Mortazavi                                            #
 #       Douran Co. LTD                                                         #
+#       Release note:                                                          #
+#           - V.1.00  For Test                                                 #
+#           - V.1.01  Add nexus                                                #
+#           - V.1.02  Add py nexus                                             #
+#           - V.2.00  Update jdk                                               #
+#           - V.2.01  Update tomcat & JDK                                      #
 ################################################################################
 
 ---
-- name: Install Guacamole and Pam
-  hosts: PamServers
+- name: Deploy Guacamole
+  hosts: guacamoleServers
   remote_user: root
 
   vars:
@@ -14,6 +20,7 @@
     apt_proxy: "/apt-proxy/"
     apt_hosted: "/apt-hosted/"
     nexus_components: "main restricted universe multiverse"
+    tomcat_path: "<Tomcat_Path>"
 
   tasks:
     - name: Configure DNS resolvers
@@ -26,7 +33,7 @@
 
     - name: Download Nexus APT public key from Nexus RAW repo
       ansible.builtin.get_url:
-        url: "{{ nexus }}/PATH/TO/public.gpg.key"
+        url: "{{ nexus }}/raw-keys/root/gpg/apt/public.gpg.key"
         dest: "/PATH/TO/2/nexus-apt.asc"
         mode: "0644"
 
@@ -45,7 +52,7 @@
           deb [trusted=yes] {{ nexus }}{{ apt_proxy }} jammy-updates {{ nexus_components }}
           deb [trusted=yes] {{ nexus }}{{ apt_proxy }} jammy-security {{ nexus_components }}
           deb [trusted=yes] {{ nexus }}{{ apt_proxy }} jammy-backports {{ nexus_components }}
-          deb [signed-by=/usr/share/keyrings/nexus-apt.gpg] {{ nexus }}{{ apt_hosted }} jammy main
+          deb [signed-by=/PATH/TO/2/nexus-apt.gpg] {{ nexus }}{{ apt_hosted }} jammy main
 
     - name: Apt update
       ansible.builtin.apt:
@@ -90,11 +97,7 @@
         - mysql-server
         - freerdp2-dev
         - freerdp2-x11
-        - default-jdk
-        - tomcat9
-        - tomcat9-admin
-        - tomcat9-common
-        - tomcat9-user
+        - openjdk-17-jdk
         - python3-pip
         - libmysqlclient21
         - libzip-dev
@@ -106,6 +109,12 @@
         - tesseract-ocr-fas
         - zip
         - python3-lxml
+        - linux-image-5.15.0-179-generic            ##Added because thease are not in ubuntu repositories.
+        - linux-modules-5.15.0-179-generic          ##So I add them in the Nexus apt-hosted repo.
+        - linux-modules-extra-5.15.0-179-generic
+        - linux-headers-5.15.0-179
+        - linux-headers-5.15.0-179-generic
+
         update_cache: yes
 
     - name: Configure pip to use Nexus (system-wide)
@@ -125,11 +134,65 @@
       tags:
         - prerequisites
 
-    - name: Start service of Apache Tomcat 9
-      ansible.builtin.service:
-        name: tomcat9
-        enabled: yes
-        state: started
+    - name: Create tomcat user
+      ansible.builtin.user:
+        name: tomcat
+        create_home: no
+        shell: /usr/sbin/nologin
+
+    - name: Create tomcat-9 directory
+      file:
+        path: "/opt/tomcat/"
+        state: directory
+        owner: tomcat
+        group: tomcat
+
+    - name: Download tomcat-9 tar.gz file
+      ansible.builtin.unarchive:
+        src: http://<NEXUS URL>/repository/apache-tomcat-9.0.118.tar.gz
+        dest: /opt/tomcat/
+        remote_src: yes
+
+    - name: Change owner of tomcat directory
+      ansible.builtin.file:
+        path: /opt/tomcat/
+        state: directory
+        recurse: yes
+        owner: tomcat
+        group: tomcat
+
+    - name: Create Default config file for tomcat
+      ansible.builtin.copy:
+        content: |
+                  JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+                  CATALINA_HOME={{ tomcat_path }}
+                  CATALINA_BASE={{ tomcat_path }}
+                  CATALINA_OPTS="-Xms512M -Xmx8192M"
+                  GUACAMOLE_HOME=/etc/guacamole
+        dest: /etc/default/tomcat
+
+    - name: Create service for tomcat
+      ansible.builtin.copy:
+        content: |
+                  [Unit]
+                  Description=Apache Tomcat 9
+                  After=network.target
+
+                  [Service]
+                  Type=forking
+                  EnvironmentFile=/etc/default/tomcat
+                  User=tomcat
+                  Group=tomcat
+                  ExecStart={{ tomcat_path }}/bin/startup.sh
+                  ExecStop={{ tomcat_path }}/bin/shutdown.sh
+                  SuccessExitStatus=143
+                  Restart=on-failure
+                  RestartSec=10
+
+                  [Install]
+                  WantedBy=multi-user.target
+
+        dest: /etc/systemd/system/tomcat9.service
 
     - name: Open port 8080 for guacamole
       community.general.ufw:
@@ -139,14 +202,14 @@
 
     - name: Check if ErrorReportValve exists
       community.general.xml:
-        path: /etc/tomcat9/server.xml
+        path: {{ tomcat_path }}/conf/server.xml
         xpath: /Server/Service/Engine/Host/Valve[@className="org.apache.catalina.valves.ErrorReportValve"]
         count: yes
       register: valve_check
 
     - name: Ensure ErrorReportValve exists
       community.general.xml:
-        path: /etc/tomcat9/server.xml
+        path: {{ tomcat_path }}/conf/server.xml
         xpath: /Server/Service/Engine/Host
         add_children:
           - Valve:
@@ -155,12 +218,6 @@
               showServerInfo: "false"
       when: valve_check.count == 0
 
-    - name: Restart Tomcat9 service
-      ansible.builtin.service:
-        name: tomcat9
-        enabled: yes
-        state: restarted
-
     - name: Download and unarchive guacamole server
       ansible.builtin.unarchive:
         src: ./guacamole-server-1.5.5.tar.gz
@@ -168,21 +225,21 @@
 
     - name: Configure command for Guacamole server
       ansible.builtin.shell:
-        chdir: ./guacamole-server-1.5.5
+        chdir: /root/guacamole-server-1.5.5
         cmd: ./configure --with-init-dir=/etc/init.d
 
     - name: Make command for Guacamole server
       community.general.make:
-        chdir: ./guacamole-server-1.5.5
+        chdir: /root/guacamole-server-1.5.5
 
     - name: Make Install command for Guacamole server
       community.general.make:
-        chdir: ./guacamole-server-1.5.5
+        chdir: /root/guacamole-server-1.5.5
         target: install
 
     - name: ldconfig command for Guacamole server
       ansible.builtin.shell:
-        chdir: ./guacamole-server-1.5.5
+        chdir: /root/guacamole-server-1.5.5
         cmd: ldconfig
 
     - name: Make directories (extensions,lib)
@@ -200,22 +257,22 @@
         dest: /etc/guacamole/guacd.conf
         follow: yes
 
-    - name: Guacamole service enable and restart
-      ansible.builtin.service:
-        name: guacd
-        enabled: yes
-        state: started
-
     - name: Remove ROOT dir of tomcat
       file:
-        path: /var/lib/tomcat9/webapps/ROOT
+        path: {{ tomcat_path }}/webapps/ROOT
         state: absent
 
     - name: Install Guacamole client
       ansible.builtin.copy:
         src: ./guacamole-1.5.5.war
-        dest: /var/lib/tomcat9/webapps/ROOT.war
+        dest: {{ tomcat_path }}/webapps/ROOT.war
         follow: yes
+
+    - name: Guacamole service enable and restart
+      ansible.builtin.service:
+        name: guacd
+        enabled: yes
+        state: started
 
     - name: Config Guacamole Server
       ansible.builtin.shell:
@@ -254,14 +311,14 @@
 
     - name: Create Database
       mysql_db:
-        name: dpam_db
+        name: <MySQL_DB>
         state: present
         login_unix_socket: /run/mysqld/mysqld.sock
 
     - name: Create Database user
       mysql_user:
         name: <MySQL_USER>
-        password: <MySQL_PASS>
+        password: <MySQL_USER_PASS>
         priv: '*.*:ALL'
         host: '%'
         state: present
@@ -269,24 +326,34 @@
 
     - name: Copy the create tables query files
       ansible.builtin.copy:
-        src: ./guacamole-auth-jdbc-1.5.3/mysql/schema/001-create-schema.sql
+        src: ./guacamole-auth-jdbc-1.5.5/mysql/schema/001-create-schema.sql
         dest: /etc/guacamole/extensions/
 
     - name: Copy the create tables query files
       ansible.builtin.copy:
-        src: ./guacamole-auth-jdbc-1.5.3/mysql/schema/002-create-admin-user.sql
+        src: ./guacamole-auth-jdbc-1.5.5/mysql/schema/002-create-admin-user.sql
         dest: /etc/guacamole/extensions/
 
     - name: Create Guacamole tables
       mysql_db:
-        name: dpam_db
+        name: <MySQL_DB>
         target: /etc/guacamole/extensions/001-create-schema.sql
         state: import
         login_unix_socket: /run/mysqld/mysqld.sock
 
     - name: Create Guacamole tables 2
       mysql_db:
-        name: dpam_db
+        name: <MySQL_DB>
         target: /etc/guacamole/extensions/002-create-admin-user.sql
         state: import
         login_unix_socket: /run/mysqld/mysqld.sock
+
+    - name: Restart tomcat service
+      ansible.builtin.service:
+        name: tomcat9
+        enabled: yes
+        state: restarted
+
+    - name: Reboot server to apply kernel update
+      ansible.builtin.reboot:
+        msg: "Reboot initiated by Ansible to apply kernel update."
